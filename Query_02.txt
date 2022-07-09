@@ -1,0 +1,21 @@
+WITH total_orders AS (
+  SELECT city, COUNT(order_id) total_orders
+  FROM `main_assessment.orders`
+  GROUP BY city
+)
+, top_orders AS (
+  SELECT city, SUM(user_orders) top10_total_orders
+  FROM (
+    SELECT city, user_id, COUNT(order_id) user_orders, RANK() OVER (PARTITION BY city ORDER BY COUNT(order_id) desc, SUM(amount) desc) rnk
+    FROM `main_assessment.orders` 
+    GROUP BY city, user_id
+  )
+  WHERE rnk <= 10
+  GROUP BY city
+)
+
+SELECT T_O.city, CONCAT(CAST(ROUND(100*(T_P.top10_total_orders / T_O.total_orders),2) AS STRING),'%') contribution_perc
+FROM total_orders T_O
+INNER JOIN top_orders T_P
+  ON T_O.city = T_P.city
+ORDER BY T_O.city

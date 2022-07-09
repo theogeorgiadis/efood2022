@@ -1,0 +1,46 @@
+WITH user_freq AS (
+  SELECT *
+    ,CASE WHEN COUNT(order_id) OVER (PARTITION BY city, user_id) >= 3 THEN user_id ELSE null END morethan3_flag
+    ,CASE WHEN cuisine = 'Breakfast' THEN user_id ELSE NULL END breakfast_flag
+    ,CASE WHEN (CASE WHEN cuisine = 'Breakfast' THEN user_id ELSE NULL END) IS NOT NULL 
+      AND COUNT(CASE WHEN cuisine = 'Breakfast' THEN user_id ELSE NULL END) OVER (PARTITION BY user_id, city) >=3
+      THEN user_id ELSE NULL END breakfast_user_count
+  FROM `main_assessment.orders`
+)
+, total_measures AS (
+  SELECT city, COUNT(order_id) total_orders, COUNT(DISTINCT user_id) total_users, SUM(amount) total_amt
+    ,SUM(amount)/COUNT(order_id) efood_basket
+    ,COUNT(order_id)/COUNT(DISTINCT user_id) efood_freq
+  FROM `main_assessment.orders` 
+  GROUP BY city
+)
+, breakfast_measures AS (
+  SELECT city, COUNT(order_id) breakfast_orders, COUNT(distinct user_id) breakfast_users, SUM(amount) breakfast_amt
+    ,SUM(amount)/COUNT(order_id) breakfast_basket
+    ,COUNT(order_id)/COUNT(DISTINCT user_id) breakfast_freq
+  FROM `main_assessment.orders` 
+  WHERE cuisine = 'Breakfast'
+  GROUP BY city
+  HAVING COUNT(order_id)>=1000
+)
+, users3freq AS (
+  SELECT DISTINCT city
+    , CASE WHEN COUNT(DISTINCT breakfast_flag) OVER (PARTITION BY city) <> 0
+        THEN COUNT(DISTINCT breakfast_user_count) OVER (PARTITION BY city) / COUNT(DISTINCT breakfast_flag) OVER (PARTITION BY city) 
+        ELSE NULL END breakfast_users3freq_perc
+    , CASE WHEN COUNT(DISTINCT user_id) OVER (PARTITION BY city) <> 0 
+        THEN COUNT(DISTINCT morethan3_flag) OVER (PARTITION BY city) / COUNT(DISTINCT user_id) OVER (PARTITION BY city) 
+        ELSE NULL END efood_users3freq_perc
+    ,COUNT(breakfast_flag) OVER (PARTITION BY city) total_breakfasts
+  FROM user_freq
+)
+
+SELECT TM.city, BM.breakfast_basket, TM.efood_basket, BM.breakfast_freq, TM.efood_freq, UF.breakfast_users3freq_perc, UF.efood_users3freq_perc
+FROM total_measures TM
+INNER JOIN breakfast_measures BM
+  ON TM.city = BM.city
+INNER JOIN users3freq UF
+  ON UF.city = TM.city
+ORDER BY RANK() OVER (ORDER BY UF.total_breakfasts DESC) 
+LIMIT 5
+
